@@ -1,4 +1,5 @@
 #include "ESPmDNS.h"
+#include <OSCBundle.h>
 #include <OSCMessage.h>
 #include <WiFi.h>
 #include <WiFiMulti.h>
@@ -29,10 +30,11 @@ namespace connectivity {
 namespace conf {
 const IPAddress udpAddress(230, 1, 1, 1);
 const int udpPort = 4000;
+const int localPort = 3000;
 const string mdnsPrefix = "eye";
 }; // namespace conf
 
-WiFiUDP udp;
+WiFiUDP udp, udpRcv;
 #if MULTI
 WiFiMulti wifiMulti;
 #endif
@@ -49,91 +51,7 @@ unsigned long lastPingTime = 0;
 
 bool connected = false;
 
-void printEvent(WiFiEvent_t event) {
-
-  Serial.printf("[WiFi-event] event: %d : ", event);
-
-  switch (event) {
-  case SYSTEM_EVENT_WIFI_READY:
-    DBGWIFI("WiFi interface ready");
-    break;
-  case SYSTEM_EVENT_SCAN_DONE:
-    DBGWIFI("Completed scan for access points");
-    break;
-  case SYSTEM_EVENT_STA_START:
-    DBGWIFI("WiFi client started");
-    break;
-  case SYSTEM_EVENT_STA_STOP:
-    DBGWIFI("WiFi clients stopped");
-    break;
-  case SYSTEM_EVENT_STA_CONNECTED:
-    DBGWIFI("Connected to access point");
-    break;
-  case SYSTEM_EVENT_STA_DISCONNECTED:
-    DBGWIFI("Disconnected from WiFi access point");
-    break;
-  case SYSTEM_EVENT_STA_AUTHMODE_CHANGE:
-    DBGWIFI("Authentication mode of access point has changed");
-    break;
-  case SYSTEM_EVENT_STA_GOT_IP:
-    Serial.print("Obtained IP address: ");
-    DBGWIFI(WiFi.localIP());
-    break;
-  case SYSTEM_EVENT_STA_LOST_IP:
-    DBGWIFI("Lost IP address and IP address is reset to 0");
-    break;
-  case SYSTEM_EVENT_STA_WPS_ER_SUCCESS:
-    DBGWIFI("WiFi Protected Setup (WPS): succeeded in enrollee mode");
-    break;
-  case SYSTEM_EVENT_STA_WPS_ER_FAILED:
-    DBGWIFI("WiFi Protected Setup (WPS): failed in enrollee mode");
-    break;
-  case SYSTEM_EVENT_STA_WPS_ER_TIMEOUT:
-    DBGWIFI("WiFi Protected Setup (WPS): timeout in enrollee mode");
-    break;
-  case SYSTEM_EVENT_STA_WPS_ER_PIN:
-    DBGWIFI("WiFi Protected Setup (WPS): pin code in enrollee mode");
-    break;
-  case SYSTEM_EVENT_AP_START:
-    DBGWIFI("WiFi access point started");
-    break;
-  case SYSTEM_EVENT_AP_STOP:
-    DBGWIFI("WiFi access point  stopped");
-    break;
-  case SYSTEM_EVENT_AP_STACONNECTED:
-    DBGWIFI("Client connected");
-    break;
-  case SYSTEM_EVENT_AP_STADISCONNECTED:
-    DBGWIFI("Client disconnected");
-    break;
-  case SYSTEM_EVENT_AP_STAIPASSIGNED:
-    DBGWIFI("Assigned IP address to client");
-    break;
-  case SYSTEM_EVENT_AP_PROBEREQRECVED:
-    DBGWIFI("Received probe request");
-    break;
-  case SYSTEM_EVENT_GOT_IP6:
-    DBGWIFI("IPv6 is preferred");
-    break;
-  case SYSTEM_EVENT_ETH_START:
-    DBGWIFI("Ethernet started");
-    break;
-  case SYSTEM_EVENT_ETH_STOP:
-    DBGWIFI("Ethernet stopped");
-    break;
-  case SYSTEM_EVENT_ETH_CONNECTED:
-    DBGWIFI("Ethernet connected");
-    break;
-  case SYSTEM_EVENT_ETH_DISCONNECTED:
-    DBGWIFI("Ethernet disconnected");
-    break;
-  case SYSTEM_EVENT_ETH_GOT_IP:
-    DBGWIFI("Obtained IP address");
-    break;
-  default:
-    break;
-  }
-}
+void printEvent(WiFiEvent_t event);
 
 // wifi event handler
 void WiFiEvent(WiFiEvent_t event) {
@@ -149,6 +67,7 @@ void WiFiEvent(WiFiEvent_t event) {
     // initializes the UDP state
     // This initializes the transfer buffer
     udp.beginMulticast(conf::udpAddress, conf::udpPort);
+    udpRcv.begin(conf::localPort);
     // digitalWrite(ledPin, HIGH);
     connected = true;
     sendPing();
@@ -249,9 +168,41 @@ bool handleConnection() {
 String joinToString(vector<float> p) {
   String res;
   for (auto &e : p) {
-    res += String(e) + ", ";
+    res += ", " + String(e);
   }
   return res;
+}
+
+OSCMessage tmpMsg;
+bool receiveOSC(OSCBundle &bundle) {
+  if (!connected)
+    return false;
+  int size = udpRcv.parsePacket();
+
+  if (size > 0) {
+    Serial.print("size : ");
+    Serial.println(size);
+    while (size--) {
+      auto d = udpRcv.read();
+      bundle.fill(d);
+      tmpMsg.fill(d);
+    }
+    if (!bundle.hasError()) {
+      tmpMsg.empty();
+      return bundle.size() > 0;
+    }
+    if (!tmpMsg.hasError()) {
+      bundle.empty();
+      bundle.add(tmpMsg);
+      tmpMsg.empty();
+      return true;
+    }
+    Serial.print("bundle err");
+    Serial.println(bundle.getError());
+    bundle.empty();
+    tmpMsg.empty();
+  }
+  return false;
 }
 
 void sendOSC(const char *addr, const vector<float> &a) {
@@ -309,4 +260,89 @@ std::string getMac() {
   return std::string(esp_mac);
 }
 
+void printEvent(WiFiEvent_t event) {
+
+  Serial.printf("[WiFi-event] event: %d : ", event);
+
+  switch (event) {
+  case SYSTEM_EVENT_WIFI_READY:
+    DBGWIFI("WiFi interface ready");
+    break;
+  case SYSTEM_EVENT_SCAN_DONE:
+    DBGWIFI("Completed scan for access points");
+    break;
+  case SYSTEM_EVENT_STA_START:
+    DBGWIFI("WiFi client started");
+    break;
+  case SYSTEM_EVENT_STA_STOP:
+    DBGWIFI("WiFi clients stopped");
+    break;
+  case SYSTEM_EVENT_STA_CONNECTED:
+    DBGWIFI("Connected to access point");
+    break;
+  case SYSTEM_EVENT_STA_DISCONNECTED:
+    DBGWIFI("Disconnected from WiFi access point");
+    break;
+  case SYSTEM_EVENT_STA_AUTHMODE_CHANGE:
+    DBGWIFI("Authentication mode of access point has changed");
+    break;
+  case SYSTEM_EVENT_STA_GOT_IP:
+    Serial.print("Obtained IP address: ");
+    DBGWIFI(WiFi.localIP());
+    break;
+  case SYSTEM_EVENT_STA_LOST_IP:
+    DBGWIFI("Lost IP address and IP address is reset to 0");
+    break;
+  case SYSTEM_EVENT_STA_WPS_ER_SUCCESS:
+    DBGWIFI("WiFi Protected Setup (WPS): succeeded in enrollee mode");
+    break;
+  case SYSTEM_EVENT_STA_WPS_ER_FAILED:
+    DBGWIFI("WiFi Protected Setup (WPS): failed in enrollee mode");
+    break;
+  case SYSTEM_EVENT_STA_WPS_ER_TIMEOUT:
+    DBGWIFI("WiFi Protected Setup (WPS): timeout in enrollee mode");
+    break;
+  case SYSTEM_EVENT_STA_WPS_ER_PIN:
+    DBGWIFI("WiFi Protected Setup (WPS): pin code in enrollee mode");
+    break;
+  case SYSTEM_EVENT_AP_START:
+    DBGWIFI("WiFi access point started");
+    break;
+  case SYSTEM_EVENT_AP_STOP:
+    DBGWIFI("WiFi access point  stopped");
+    break;
+  case SYSTEM_EVENT_AP_STACONNECTED:
+    DBGWIFI("Client connected");
+    break;
+  case SYSTEM_EVENT_AP_STADISCONNECTED:
+    DBGWIFI("Client disconnected");
+    break;
+  case SYSTEM_EVENT_AP_STAIPASSIGNED:
+    DBGWIFI("Assigned IP address to client");
+    break;
+  case SYSTEM_EVENT_AP_PROBEREQRECVED:
+    DBGWIFI("Received probe request");
+    break;
+  case SYSTEM_EVENT_GOT_IP6:
+    DBGWIFI("IPv6 is preferred");
+    break;
+  case SYSTEM_EVENT_ETH_START:
+    DBGWIFI("Ethernet started");
+    break;
+  case SYSTEM_EVENT_ETH_STOP:
+    DBGWIFI("Ethernet stopped");
+    break;
+  case SYSTEM_EVENT_ETH_CONNECTED:
+    DBGWIFI("Ethernet connected");
+    break;
+  case SYSTEM_EVENT_ETH_DISCONNECTED:
+    DBGWIFI("Ethernet disconnected");
+    break;
+  case SYSTEM_EVENT_ETH_GOT_IP:
+    DBGWIFI("Obtained IP address");
+    break;
+  default:
+    break;
+  }
+}
 } // namespace connectivity
