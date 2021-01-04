@@ -2,6 +2,7 @@ struct GEMock {
   template <typename T> T echo(T f) { return f; }
   void echovoid() {}
   template <typename... Args> void trigWithParams(Args... args){};
+  float mf = 1;
 };
 
 struct MockAPI : public API<GEMock> {
@@ -18,6 +19,7 @@ struct MockAPI : public API<GEMock> {
     // rFunction<void, int, float>("trigWithParamif",
     //                             &GEMock::trigWithParams<int, float>);
     rTrig("echovoidNoArg", &GEMock::echovoid);
+    rMember("mf", &GEMock::mf);
   }
 };
 
@@ -26,6 +28,8 @@ struct MockAPI : public API<GEMock> {
 #include "gtest/gtest.h"
 MockAPI api;
 GEMock inst;
+
+APIInstance<GEMock> apiInst(inst, api);
 
 template <typename T> void testType(const std::string &fname, double val) {
   FunctionOfInstance<GEMock> *f = api.getFunction(fname);
@@ -88,5 +92,15 @@ TEST(APITest, canCall) {
   testTrig("echovoidNoArg");
   testTrigWithParam<int>("trigWithParami", 1);
   // testTrigWithParam<int, float>("trigWithParamif", 1, 1.f);
-  testTrigWithParam<int, int>("trigWithParamii", 1, 1.f);
+  testTrigWithParam<int, int>("trigWithParamii", 1, 1);
+}
+
+TEST(APITest, toString) {
+  auto apiState = apiInst.toString();
+  EXPECT_TRUE(apiState.size() > 0);
+  PRINTLN(apiState);
+  bool success = apiInst.fromString(apiState);
+  EXPECT_TRUE(success);
+  auto apiState2 = apiInst.toString();
+  EXPECT_TRUE(apiState2 == apiState);
 }

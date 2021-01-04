@@ -26,6 +26,7 @@ void setup() {
   api.registerAPI("/g", &gAPIInstance);
   ge.setup();
 }
+
 void loop() {
   auto t = millis();
   ge.loop();

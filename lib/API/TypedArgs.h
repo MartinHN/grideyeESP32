@@ -11,9 +11,10 @@
 #include <typeindex>
 typedef std::type_index TypeID;
 
+struct Undefined {};
 struct TypeOfBase {
-  virtual TypeID value() const { return typeid(void); }
-  virtual std::string name() const { return "void"; }
+  virtual TypeID value() const { return typeid(Undefined); }
+  virtual std::string name() const { return "Undefined"; }
 };
 template <typename T> struct TypeOf {
   static TypeID value() { return typeid(T); }
@@ -27,17 +28,14 @@ template <typename T> struct TypeOfImpl : public TypeOfBase {
   std::string name() const override { return TypeOf<T>::name(); }
 };
 
-struct Undefined {};
 struct TypedArgBase {
   typedef std::unique_ptr<TypedArgBase> UPtr;
   static const TypedArgBase &none() {
     static TypedArgBase n;
     return n;
   };
-  TypedArgBase() = default;
 
-protected:
-  TypedArgBase(const TypeOfBase &typ) : type(typ) {
+  TypedArgBase(const TypeOfBase &typ = TypeOfBase()) : type(typ) {
     if (type.value() == TypeOf<TypedArgBase>::value()) {
       PRINTLN("!!!creating base class");
     }
@@ -308,3 +306,44 @@ std::tuple<Args...> fillTuple(const TypedArgList &args, bool &valid) {
 //   std::get<0>(tuple) =
 //       args[0].get<typename std::tuple_element<0, Tuple>::type>();
 // }
+
+struct QResult {
+  QResult() = default;
+  QResult(QResult &&o) = default;
+  QResult(TypedArgBase *r) : valid(true), res(r){};
+  QResult(TypedArgBase::UPtr &&r) : valid(true), res(std::move(r)){};
+
+  explicit QResult(bool hasErr) : valid(hasErr){};
+  operator bool() const { return valid; }
+  // ~QResult() = default;
+  // template <typename T> QResult(T r) : valid(true), res(r) {}
+
+  template <typename T> void set(T r) {
+    valid = true;
+    res = std::make_unique<TypedArg<T>>(r);
+    errMsg.clear();
+  }
+
+  // void setResult(const TypedArgBase &r) {
+  //   valid = true;
+  //   res = r;
+  //   errMsg.clear();
+  // }
+
+  static QResult err(const std::string &err) { return QResult(err); }
+
+  template <typename T> static QResult ok(const T &r) {
+    return QResult(std::make_unique<TypedArg<T>>(r));
+  }
+  static QResult ok() { return QResult(true); };
+  std::string toString() {
+    return valid ? (res ? res->toString() : "valid but empty") : errMsg;
+  }
+  bool valid = false;
+  TypedArgBase::UPtr res = {}; // TypedArgBase::none();
+  std::string errMsg = {};
+
+private:
+  QResult(const std::string &err) : valid(false), errMsg(err){};
+};
+// static_assert(std::is_aggregate<QResult>::value);

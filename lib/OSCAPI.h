@@ -10,13 +10,14 @@ public:
   std::unique_ptr<APIInstance<OSCAPI>> selfAPI;
   OSCAPI() {
 
-    rFunction<std::string>("listNamespaces", [](OSCAPI &a) -> std::string {
-      std::vector<std::string> nsNames;
-      for (auto const &imap : a.apis)
-        nsNames.push_back(imap.first + ":" + imap.second->getAPI().toString() +
-                          "\n");
-      return StringHelpers::joinIntoString(nsNames);
-    });
+    // rFunction<std::string>("listNamespaces", [](OSCAPI &a) -> std::string {
+    //   std::vector<std::string> nsNames;
+    //   for (auto const &imap : a.apis)
+    //     nsNames.push_back(imap.first + ":" + imap.second->getAPI().toString()
+    //     +
+    //                       "\n");
+    //   return StringHelpers::joinIntoString(nsNames);
+    // });
 
     selfAPI.reset(new APIInstance<OSCAPI>(*this, *this));
     registerAPI("/o", selfAPI.get());
@@ -27,6 +28,7 @@ public:
   }
 
   typedef enum { NONE = 0, SET = 1, GET = 2, CALL = 3 } MsgType;
+
   MsgType getType(OSCMessage &msg) {
     if (msg.getString(0, OSCEndpoint::getBuf()) > 0) {
       if (strcmp(OSCEndpoint::getBuf(), "get") == 0) {

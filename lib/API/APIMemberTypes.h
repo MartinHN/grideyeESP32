@@ -10,23 +10,34 @@ typedef std::string Identifier;
 struct MemberBase {
   virtual ~MemberBase() = default;
   virtual std::string getTypeName() const = 0;
+  virtual void setFromString(void *owner, const std::string &s) = 0;
+  virtual std::string toString(void *owner) const = 0;
+  template <typename T> bool is() const;
 };
 
-template <typename C, typename T> struct Member : public MemberBase {
+template <typename T> struct MemberBaseT : public MemberBase {
+  virtual ~MemberBaseT() = default;
+  std::string getTypeName() const override { return TypeOf<T>::name(); }
+};
+
+template <typename T> bool MemberBase::is() const {
+  return dynamic_cast<const MemberBaseT<T> *>(this);
+}
+
+template <typename C, typename T> struct Member : public MemberBaseT<T> {
   typedef T C::*Ptr;
   Ptr ptr;
   Member(Ptr mPtr) : ptr(mPtr) {}
   void set(C &owner, const T &v) { owner.*ptr = v; }
-  const T &get(const C &owner) const { return owner.*ptr; }
+  T get(const C &owner) const { return owner.*ptr; }
+  const T &getRef(const C &owner) const { return owner.*ptr; }
 
-  std::string getTypeName() const override { return TypeOf<T>::name(); }
-
-  //   void setFromString(C &owner, const std::string &s) {
-  //     owner.*ptr = StringHelpers::fromString<T>(v);
-  //   }
-  //   std::string toString(C &owner) const {
-  //     return StringHelpers::toString<T>(owner.*ptr);
-  //   }
+  void setFromString(void *owner, const std::string &s) override {
+    reinterpret_cast<C *>(owner)->*ptr = StringHelpers::fromString<T>(s);
+  }
+  std::string toString(void *owner) const override {
+    return StringHelpers::toString<T>(reinterpret_cast<C *>(owner)->*ptr);
+  }
 };
 
 struct GetterBase {
@@ -77,16 +88,24 @@ struct Function : public FunctionOfInstance<C> {
   };
 
   std::string getReturnType() const override { return TypeOf<T>::name(); }
+
   template <typename A = void>
   void getArgAtPos(std::vector<std::string> &types) const {
-    if (!(std::is_void<A>::value))
-      types.push_back(TypeOf<T>::name());
+    if (!(std::is_void<A>::value)) {
+      types.push_back(TypeOf<A>::name());
+    } else {
+      PRINTLN("!!!! adding void to arg");
+    }
   }
 
   template <typename A, typename... Remaining>
   std::enable_if_t<(sizeof...(Remaining) > 0), void>
   getArgAtPos(std::vector<std::string> &types) const {
-    types.push_back(TypeOf<A>::name());
+    if (!(std::is_void<A>::value)) {
+      types.push_back(TypeOf<A>::name());
+    } else {
+      PRINTLN("!!!! adding void to arg");
+    }
     getArgAtPos<Remaining...>(types);
   }
 
@@ -152,3 +171,34 @@ struct Function : public FunctionOfInstance<C> {
 
   FType f;
 };
+
+//////////
+// Helpers
+
+template <typename C, typename T>
+bool tryGet(C &o, GetterBase *g, QResult &res) {
+  if (auto getter = dynamic_cast<Getter<C, T> *>(g)) {
+    res.set(getter->get(o));
+    return true;
+  }
+  return false;
+}
+
+template <typename C, typename T>
+bool trySet(C &o, MemberBase *g, const TypedArgBase *v) {
+  if (auto m = dynamic_cast<Member<C, T> *>(g)) {
+    m->set(o, v->get<T>());
+    return true;
+  }
+  return false;
+}
+
+template <typename C>
+QResult tryCall(C &owner, FunctionOfInstance<C> &fun, const TypedArgList &v) {
+  if (fun.getNumArgs() == v.size()) {
+    // PRINTLN("insideTryCall");
+    TypedArgBase::UPtr res = fun.call(owner, v);
+    return QResult(std::move(res));
+  }
+  return QResult::err("wrong num of args");
+}
