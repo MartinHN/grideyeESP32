@@ -1,4 +1,5 @@
 #pragma once
+#include "Utils.h"
 #include "log.h"
 #include <string>
 
@@ -10,24 +11,23 @@
 #include <typeindex>
 typedef std::type_index TypeID;
 
-namespace StringHelpers {
+struct TypeOfBase {
+  virtual TypeID value() const { return typeid(void); }
+  virtual std::string name() const { return "void"; }
+};
+template <typename T> struct TypeOf {
+  static TypeID value() { return typeid(T); }
+  static std::string name() { return value().name(); }
+};
 
-template <typename T> std::string toString(const T &v) { return "unknown"; };
-// template <typename T>
-// toString(const T &v) {
-//   return std::to_string((T)v);
-// };
+template <> std::string TypeOf<std::string>::name() { return "string"; }
 
-template <> std::string toString<std::string>(const std::string &v) {
-  return std::string(v);
-}
+template <typename T> struct TypeOfImpl : public TypeOfBase {
+  TypeID value() const override { return TypeOf<T>::value(); }
+  std::string name() const override { return TypeOf<T>::name(); }
+};
 
-template <> std::string toString<float>(const float &v) {
-  return std::to_string(v);
-}
-} // namespace StringHelpers
-
-struct Void {};
+struct Undefined {};
 struct TypedArgBase {
   typedef std::unique_ptr<TypedArgBase> UPtr;
   static const TypedArgBase &none() {
@@ -37,133 +37,118 @@ struct TypedArgBase {
   TypedArgBase() = default;
 
 protected:
-  TypedArgBase(const TypeID &t) : typeId(t), typeStr(t.name()) {}
+  TypedArgBase(const TypeOfBase &typ) : type(typ) {
+    if (type.value() == TypeOf<TypedArgBase>::value()) {
+      PRINTLN("!!!creating base class");
+    }
+  }
 
 public:
-  // TypedArgBase(TypedArgBase &&) = default;
+  TypedArgBase(TypedArgBase &&) = delete;
   // TypedArgBase &operator=(const TypedArgBase &) = default;
   virtual ~TypedArgBase() = default;
-  const TypeID typeId = typeid(Void);
-  const std::string typeStr = "void";
+  const TypeOfBase &type = {};
   template <typename T> T get() const;
-  template <typename T> bool set(const T &) { return false; }
+  template <typename T> bool is() const;
+  template <typename T> bool set(const T &) {
+    PRINTLN("setting empty");
+    return false;
+  }
+  virtual std::unique_ptr<TypedArgBase> clone() const {
+    PRINTLN("cloning empty");
+    return std::make_unique<TypedArgBase>();
+  }
   virtual bool fromString(const std::string &s) { return false; }
-  virtual std::string toString() { return "none"; }
+  virtual std::string toString() const {
+    PRINTLN("stringing empty");
+    return "undefined";
+  }
 };
 
-template <typename T> struct TypedArg : public TypedArgBase {
-  TypedArg(const T &source) : TypedArgBase(typeid(T)), v(source) {}
+template <typename T> struct isTypedArgBase {
+  static constexpr bool ptr =
+      std::is_same<TypedArgBase *, std::decay_t<T>>::value;
+  static constexpr bool ref =
+      std::is_same<TypedArgBase, std::decay_t<T>>::value && !ptr;
+  static constexpr bool uptr =
+      std::is_same<std::unique_ptr<TypedArgBase>, std::decay_t<T>>::value;
+
+  static constexpr bool any = ref || uptr || ptr;
+};
+
+template <typename T, std::enable_if_t<!isTypedArgBase<T>::any, bool> = true>
+struct TypedArg : public TypedArgBase {
+  TypedArg(const T &source) : TypedArgBase(TypeOfImpl<T>()), v(source) {}
+  ~TypedArg() {}
   const T &get() const { return v; }
   bool set(const T &e) {
     v = e;
     return true;
   }
-  std::string toString() { return StringHelpers::toString<T>(v); }
+  std::unique_ptr<TypedArgBase> clone() const override {
+    return std::unique_ptr<TypedArgBase>(new TypedArg<T>(v));
+  }
+  std::string toString() const override {
+    return StringHelpers::toString<T>(v);
+  }
 
   T v;
 };
+
+template <> struct TypedArg<void> : public TypedArgBase {
+
+  TypedArg() : TypedArgBase(TypeOfImpl<void>()) {}
+  ~TypedArg() {}
+  std::unique_ptr<TypedArgBase> clone() const override {
+    return std::unique_ptr<TypedArgBase>(new TypedArg<void>());
+  }
+  std::string toString() const override { return "void"; }
+};
+
+template <typename T> bool TypedArgBase::is() const {
+  return dynamic_cast<const TypedArg<T> *>(this) != nullptr;
+}
 
 template <typename T> T TypedArgBase::get() const {
   if (auto d = dynamic_cast<const TypedArg<T> *>(this)) {
     return d->get();
   }
-  std::string tname(typeid(T).name());
+  std::string tname(TypeOf<T>::name());
   PRINT("getting : ");
   PRINTLN(tname.c_str());
-  // PRINT(" from : ");
-  // try {
-  //   PRINTLN(this->typeStr.size() ? this->typeStr.c_str() : "none");
-  // } catch (std::exception e) {
-  //   PRINT("exception : ");
-  //   PRINTLN(e.what());
+  PRINT(" from : ");
+  try {
+    PRINTLN(this->type.name().c_str());
+  } catch (std::exception e) {
+    PRINT("exception : ");
+    PRINTLN(e.what());
+  }
+  // if (std::is_floating_point<T>::value) {
+  if (auto d = dynamic_cast<const TypedArg<int> *>(this)) {
+    return T(d->get());
+  }
   // }
-  if (std::is_floating_point<T>::value) {
-    PRINTLN("try cast float/double");
-    if (auto d = dynamic_cast<const TypedArg<int> *>(this)) {
-      return T(d->get());
-    }
+  // if (std::is_integral<T>::value) {
+  // PRINTLN("try cast int");
+  if (auto d = dynamic_cast<const TypedArg<float> *>(this)) {
+    return T(d->get());
   }
-  if (std::is_integral<T>::value) {
-    PRINTLN("try cast int");
-    if (auto d = dynamic_cast<const TypedArg<float> *>(this)) {
-      return T(d->get());
-    }
-    if (auto d = dynamic_cast<const TypedArg<double> *>(this)) {
-      return T(d->get());
-    }
+  if (auto d = dynamic_cast<const TypedArg<double> *>(this)) {
+    return T(d->get());
   }
-  PRINTLN("getting from base");
+  if (auto d = dynamic_cast<const TypedArg<bool> *>(this)) {
+    return T(d->get() ? 1 : 0);
+  }
+  if (auto d = dynamic_cast<const TypedArg<std::string> *>(this)) {
+    return T(std::stold(d->get()));
+  }
+  // }
+  PRINTLN("!! failed try cast from int/float / double / bool /string : will "
+          "return 0");
   return {};
 }
-namespace TupleHelpers {
-// template <typename Tuple,
-//           typename Indices =
-//               std::make_index_sequence<std::tuple_size<Tuple>::value>>
-// struct runtime_get_func_table;
 
-// template <typename Tuple, size_t... Indices>
-// struct runtime_get_func_table<Tuple, std::index_sequence<Indices...>> {
-//   using return_type = typename std::tuple_element<0, Tuple>::type &;
-//   using get_func_ptr = return_type (*)(Tuple &) noexcept;
-//   static constexpr get_func_ptr table[std::tuple_size<Tuple>::value] = {
-//       &std::get<Indices>...};
-// };
-
-// template <typename Tuple, size_t... Indices>
-// constexpr typename runtime_get_func_table<
-//     Tuple, std::index_sequence<Indices...>>::get_func_ptr
-//     runtime_get_func_table<Tuple, std::index_sequence<Indices...>>::table
-//         [std::tuple_size<Tuple>::value];
-
-// template <typename Tuple>
-// constexpr typename std::tuple_element<
-//     0, typename std::remove_reference<Tuple>::type>::type &
-// runtime_get(Tuple &&t, size_t index) {
-//   using tuple_type = typename std::remove_reference<Tuple>::type;
-//   // if (index >= std::tuple_size<tuple_type>::value)
-//   //   throw std::runtime_error("Out of range");
-//   return runtime_get_func_table<tuple_type>::table[index](t);
-// }
-
-////////////
-
-// template <typename... T, std::size_t... I>
-// auto subtuple_(const std::tuple<T...> &t, std::index_sequence<I...>) {
-//   return std::make_tuple(std::get<I>(t)...);
-// }
-
-// template <int Trim, typename... T> auto subtuple(const std::tuple<T...> &t) {
-//   return subtuple_(t, std::make_index_sequence<sizeof...(T) - Trim>());
-// }
-
-///////////////////
-
-// template <typename F, size_t... Is>
-// auto gen_tuple_impl(F func, std::index_sequence<Is...>) {
-//   return std::make_tuple(func(Is)...);
-// }
-
-// template <size_t N, typename F> auto gen_tuple(F func) {
-//   return gen_tuple_impl(func, std::make_index_sequence<N>{});
-// }
-
-/////////////////////////////
-
-// template <typename Tuple, unsigned n> struct Arg {
-//   template <class X, class... Xs> constexpr auto operator()(X x, Xs... xs)
-//   {
-//     return Arg<n - 1>{}(xs...);
-//   }
-// };
-// template <> struct Arg<0> {
-//   template <class X, class... Xs> constexpr auto operator()(X x, Xs...) {
-//     return x;
-//   }
-// };
-// template <unsigned n> constexpr auto arg = Arg<n>{};
-// arg<2>(0,1,2,3,4,5) == 2;
-} // namespace TupleHelpers
-
+template <> std::string TypedArgBase::get() const { return this->toString(); }
 struct TypedArgList {
 
   typedef std::unique_ptr<TypedArgBase> Ptr;
@@ -173,20 +158,63 @@ struct TypedArgList {
     return e;
   };
   TypedArgList() = default;
-
-  template <typename... Args> TypedArgList(Args &&...a) { appendOne(a...); }
-  template <typename T, typename... Args> void appendOne(T &e, Args &&...a) {
+  TypedArgList(TypedArgList &&o) : args(std::move(o.args)) {}
+  template <typename... Args> TypedArgList(const Args &...a) {
+    appendOne(a...);
+  }
+  template <typename T, typename... Args>
+  std::enable_if_t<!isTypedArgBase<T>::any, void> appendOne(const T &e,
+                                                            const Args &...a) {
+    // PRINTLN("appending val non Typed");
     args.push_back(std::make_unique<TypedArg<T>>(e));
     appendOne(a...);
   }
-  template <typename T> void appendOne(T &e) {
+
+  template <typename T, typename... Args>
+  std::enable_if_t<isTypedArgBase<T>::uptr, void> appendOne(const T &e,
+                                                            const Args &...a) {
+    // PRINTLN("appending uptr typed");
+    if (e.get()) {
+      args.push_back(e->clone());
+    } else {
+      PRINTLN("!!appending empty ptr");
+    }
+    appendOne(a...);
+  }
+  template <typename T, typename... Args>
+  std::enable_if_t<isTypedArgBase<T>::ref, void> appendOne(const T &e,
+                                                           const Args &...a) {
+    // PRINTLN("appending ref typed");
+    args.push_back(e.clone());
+    appendOne(a...);
+  }
+
+  template <typename T>
+  std::enable_if_t<!isTypedArgBase<T>::any, void> appendOne(const T &e) {
+    // PRINTLN("appending last  non Typed");
     args.push_back(std::make_unique<TypedArg<T>>(e));
   }
 
   template <typename T>
-  TypedArgList(const T &e) : args({std::make_unique<TypedArg<T>>(e)}) {}
-  TypedArgList(TypedArgBase *b) { args.push_back(Ptr(b)); }
-  TypedArgList(Ptr &&b) { args.push_back(std::move(b)); }
+  std::enable_if_t<isTypedArgBase<T>::uptr, void> appendOne(const T &e) {
+    // PRINTLN("appending  last uptr typed");
+    if (e.get()) {
+      args.push_back(e->clone());
+    } else {
+      PRINTLN("!!appending empty ptr");
+    }
+  }
+
+  template <typename T>
+  std::enable_if_t<isTypedArgBase<T>::ref, void> appendOne(const T &e) {
+    // PRINTLN("appending  last ref typed");
+    args.push_back(e.clone());
+  }
+
+  // template <typename T>
+  // TypedArgList(const T &e) : args({std::make_unique<TypedArg<T>>(e)}) {}
+  // TypedArgList(TypedArgBase *b) { args.push_back(Ptr(b)); }
+  // TypedArgList(Ptr &&b) { args.push_back(std::move(b)); }
   template <typename T> void set(const T &e) { args = {e}; }
   template <typename T> void set(int i, const T &e) {
     if (i >= args.size()) {
@@ -205,38 +233,6 @@ struct TypedArgList {
   const TypedArgBase *operator[](int i) const { return args[i].get(); }
   TypedArgBase *operator[](int i) { return args[i].get(); }
 
-  // template <typename... Args> std::tuple<Args...> fillTuple(bool &valid)
-  // const {
-  //   if (size() != sizeof...(Args)) {
-  //     valid = false;
-  //     return {};
-  //   }
-  //   valid = true;
-  //   // size_t i = 0;
-  //   // for (const auto &v : args) {
-  //   //   TupleHelpers::runtime_get(t, i) =
-  //   //       (decltype(TupleHelpers::runtime_get(t, i)))v;
-  //   //   i++;
-  //   // }
-
-  //   // return TupleHelpers::gen_tuple<sizeof...(Args)>([this](size_t i) {
-  //   //   return (std::tuple_element<i, std::tuple<Args...>>::type)args[i];
-  //   // });
-  //   std::tuple<Args...> t;
-  //   // fillOneInTuple<std::tuple<Args...>, sizeof...(Args) - 1>(t);
-  //   TupleFiller::fillOne<sizeof...(Args) - 1>(t, args);
-  //   return t;
-  // }
-
-  // template <typename Tuple, int I> void fillOneInTuple(Tuple &tuple) const {
-  //   // constexpr int i = std::tuple_size<Tuple>::value -
-  //   sizeof...(Remaining); std::get<I>(tuple) =
-  //       args[I].get<typename std::tuple_element<I, Tuple>::type>();
-  //   if constexpr (I > 0) {
-  //     fillOneInTuple<Tuple, I - 1>(tuple);
-  //   }
-  // }
-
   void resize(int i) { args.resize(i); }
   int size() const { return args.size(); }
   ArgVecType args;
@@ -247,21 +243,50 @@ namespace TupleFiller {
 template <typename T>
 using BaseType = std::remove_cv_t<std::remove_reference_t<T>>;
 
+template <typename Tuple, int I>
+using TupleType = typename std::tuple_element<I, Tuple>::type;
+
+template <typename Tuple, int I>
+using BaseTupleType = BaseType<TupleType<Tuple, I>>;
+
+// template <typename Tuple, int I>
+// using TupleTypeIsVoid = std::is_void<TupleType<Tuple, I>>::value;
+
 // TupleFiller(Tuple &t, TypedArgList a) : args(a), tuple(t) {}
+
+// template <typename Tuple, int I>
+//     typename std::enable_if_t < (I > 0),
+//     std::enable_if_t<std::is_void<typename, void>> fillOne(
+//         Tuple &tuple, const TypedArgList &args) {
+//   fillOne<Tuple, I - 1>(tuple);
+// }
+
+// template <typename Tuple, int I>
+// inline typename std::enable_if_t<
+//     (I <= 0),
+//     std::enable_if_t<
+//         std::is_void<typename std::tuple_element<I, Tuple>::type>::value,
+//         void>>
+// fillOne(Tuple &tuple, const TypedArgList &args) {}
+
 template <typename Tuple, int I>
-inline typename std::enable_if<(I > 0), void>::type
-fillOne(Tuple &tuple, const TypedArgList &args) {
-  std::get<I>(tuple) =
-      args[I]->get<BaseType<typename std::tuple_element<I, Tuple>::type>>();
-  fillOne<Tuple, I - 1>(tuple);
-}
+inline typename std::enable_if_t<(I < 0), void>
+fillOne(Tuple &tuple, const TypedArgList &args) {}
+
 template <typename Tuple, int I>
-inline typename std::enable_if<(I == 0), void>::type
+inline typename std::enable_if_t<(I == 0), void>
 fillOne(Tuple &tuple, const TypedArgList &args) {
-  // constexpr int i = std::tuple_size<Tuple>::value - sizeof...(Remaining);
-  std::get<0>(tuple) =
-      args[0]->get<BaseType<typename std::tuple_element<0, Tuple>::type>>();
+  std::get<0>(tuple) = args[0]->get<BaseTupleType<Tuple, I>>();
 }
+
+template <typename Tuple, int I>
+inline typename std::enable_if_t<(I > 0), void>
+fillOne(Tuple &tuple, const TypedArgList &args) {
+  std::get<I>(tuple) = args[I]->get<BaseTupleType<Tuple, I>>();
+  fillOne<Tuple, (I - 1)>(tuple, args);
+}
+
+///////////////
 
 template <typename... Args>
 std::tuple<Args...> fillTuple(const TypedArgList &args, bool &valid) {

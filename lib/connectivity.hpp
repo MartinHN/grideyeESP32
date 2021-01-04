@@ -173,7 +173,6 @@ String joinToString(vector<float> p) {
   return res;
 }
 
-OSCMessage tmpMsg;
 bool receiveOSC(OSCBundle &bundle) {
   if (!connected)
     return false;
@@ -183,26 +182,28 @@ bool receiveOSC(OSCBundle &bundle) {
     Serial.print("size : ");
     Serial.println(size);
     while (size--) {
-      auto d = udpRcv.read();
-      bundle.fill(d);
-      tmpMsg.fill(d);
+      bundle.fill(udpRcv.read());
     }
-    if (!bundle.hasError()) {
-      tmpMsg.empty();
-      return bundle.size() > 0;
-    }
-    if (!tmpMsg.hasError()) {
-      bundle.empty();
-      bundle.add(tmpMsg);
-      tmpMsg.empty();
+
+    if (bundle.size() > 0) {
+      // Serial.print("bundle received : ");
+      // Serial.println(bundle.size());
       return true;
+    } else if (bundle.hasError()) {
+      Serial.print("bundle err : ");
+      Serial.println(bundle.getError());
     }
-    Serial.print("bundle err");
-    Serial.println(bundle.getError());
-    bundle.empty();
-    tmpMsg.empty();
   }
   return false;
+}
+
+void sendOSCResp(OSCMessage &m) {
+  udpRcv.beginPacket(udpRcv.remoteIP(), udpRcv.remotePort());
+  m.send(udpRcv);
+  udpRcv.endPacket();
+  DBGOSC("sent resp");
+  DBGOSC(udpRcv.remoteIP().toString().c_str());
+  DBGOSC(std::to_string(udpRcv.remotePort()).c_str());
 }
 
 void sendOSC(const char *addr, const vector<float> &a) {

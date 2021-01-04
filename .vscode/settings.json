@@ -59,7 +59,10 @@
         "*.rh": "cpp",
         "*.def": "cpp",
         "condition_variable": "cpp",
-        "typeindex": "cpp"
+        "typeindex": "cpp",
+        "hash_map": "cpp",
+        "hash_set": "cpp",
+        "forward_list": "cpp"
     },
     "clang-tidy.compilerArgs": [
         "/home/tinmar/.arduino15/packages/esp32/hardware/esp32/1.0.4/cores/esp32",

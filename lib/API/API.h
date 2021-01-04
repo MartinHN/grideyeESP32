@@ -1,82 +1,34 @@
 #pragma once
-#include "TypedArgs.h"
-#include "log.h"
-#include <experimental/tuple> // for std::apply
-#include <functional>
+#include "APIMemberTypes.h"
 
 #include <map>
 #include <string>
-using std::function;
-typedef std::string Identifier;
 
-struct MemberBase {
-  virtual ~MemberBase() = default;
+template <typename T>
+T *getOrNull(const std::map<Identifier, T *> &m, const Identifier &i) {
+  auto it = m.find(i);
+  if (it != m.end()) {
+    return it->second;
+  }
+  return {};
+}
+template <typename T>
+T *getOrNull(const std::map<Identifier, T> &m, const Identifier &i) {
+  auto it = m.find(i);
+  if (it != m.end()) {
+    return &it->second;
+  }
+  return {};
+}
+
+struct APIBase {
+  virtual ~APIBase() = default;
+  virtual std::string toString() const = 0;
 };
-
-template <typename C, typename T> struct Member : public MemberBase {
-  typedef T C::*Ptr;
-  Member(Ptr mPtr) : ptr(mPtr) {}
-  void set(C &owner, const T &v) { owner.*ptr = v; }
-  const T &get(const C &owner) const { return owner.*ptr; }
-  Ptr ptr;
-};
-
-struct GetterBase {
-  virtual ~GetterBase() = default;
-};
-
-template <typename C, typename T> struct Getter : public GetterBase {
-  using FType = function<T(C &)>;
-  Getter(FType _f) : f(_f) {}
-  T get(C &owner) { return f(owner); }
-  FType f;
-};
-
-struct FunctionBase {
-  virtual ~FunctionBase() = default;
-  virtual int getNumArgs() const = 0;
-};
-
-template <typename C> struct FunctionOfInstance : public FunctionBase {
-  virtual TypedArgBase::UPtr call(C &owner, const TypedArgList &l) = 0;
-};
-
-template <typename C, typename T, typename... Args>
-struct Function : public FunctionOfInstance<C> {
-  using FType = function<T(C &, Args...)>;
-  Function(FType _f) : f(_f) {}
-  T apply(C &owner, Args... args) { return f(owner, args...); }
-  int getNumArgs() const override { return sizeof...(Args); };
-  TypedArgBase::UPtr call(C &owner, const TypedArgList &l) override {
-    bool valid;
-    TypedArgBase::UPtr res;
-    auto tuple = TupleFiller::fillTuple<Args...>(l, valid);
-    PRINTLN("insideCall");
-    PRINT("tuple arg : ");
-    PRINTLN(std::get<0>(tuple));
-    if (valid) {
-      std::experimental::apply(
-          [this, &owner, &res](auto &&...args) {
-            res.reset(new TypedArg<T>(this->apply(owner, args...)));
-          },
-          tuple);
-    }
-    return res;
-  };
-
-  // memo
-  // void logType() { std::cout << __PRETTY_FUNCTION__ << ": " << f <<
-  // std::endl; }
-
-  FType f;
-};
-
-template <typename C> struct API {
+template <typename C> struct API : public APIBase {
 
   using Action = std::function<void(C &)>;
 
-  // register functions
-  void rTrig(const Identifier &name, Action act) { trig.emplace(name, act); };
 
   template <typename T> void rMember(const Identifier &name, T C::*ptr) {
     members.emplace(name, new Member<C, T>(ptr));
@@ -85,6 +37,11 @@ template <typename C> struct API {
   template <typename T>
   void rGetter(const Identifier &name, function<T(C &)> f) {
     getters.emplace(name, new Getter<C, T>(f));
+  };
+
+  template <typename T>
+  void rFunction(const Identifier &name, function<T(C &)> f) {
+    functions.emplace(name, new Function<C, T>(f));
   };
 
   template <typename T, typename... Args>
@@ -97,21 +54,17 @@ template <typename C> struct API {
     functions.emplace(name, new Function<C, T, Args...>(f));
   };
 
+  // register functions
+  void rTrig(const Identifier &name, Action act) {
+    rFunction<void>(name, act);
+  };
+
   // do functions
   template <typename T>
   bool set(C &instance, const Identifier &id, const T &v) const {
-    MemberBase *resolved = members.at(id);
+    MemberBase *resolved = getOrNull(members, id);
     if (auto m = dynamic_cast<Member<C, T> *>(resolved)) {
       m->set(instance, v);
-      return true;
-    }
-    return false;
-  }
-
-  bool doAction(C &instance, const Identifier &id) const {
-    const Action *resolved = getOrNull(trig, id);
-    if (resolved) {
-      resolved(instance);
       return true;
     }
     return false;
@@ -142,37 +95,48 @@ template <typename C> struct API {
 
   template <typename T, typename... Args>
   T apply(C &instance, const Identifier &id, Args... args) const {
-    FunctionBase *fb = functions.at(id);
+    FunctionBase *fb = getOrNull(functions, id);
     if (auto f = dynamic_cast<Function<C, T, Args...> *>(fb)) {
       return fb(instance, args...);
     }
     return {};
   }
+  bool doAction(C &instance, const Identifier &id) const {
+    return apply<C, void>(instance, id);
+  }
 
   bool canGet(const Identifier &id) const {
-    return members.at(id) || getters.at(id);
+    return getOrNull(members, id) || getOrNull(getters, id);
   }
-  bool canSet(const Identifier &id) const { return members.at(id); }
-  bool canCall(const Identifier &id) const { return functions.at(id); }
+  bool canSet(const Identifier &id) const { return getOrNull(members, id); }
+  bool canCall(const Identifier &id) const { return getOrNull(functions, id); }
 
-  template <typename T>
-  T *getOrNull(const std::map<Identifier, T *> &m, const Identifier &i) const {
-    auto it = m.find(i);
-    if (it != m.end()) {
-      return it->second;
-    }
-    return {};
-  }
-  template <typename T>
-  T *getOrNull(const std::map<Identifier, T> &m, const Identifier &i) const {
-    auto it = m.find(i);
-    if (it != m.end()) {
-      return &it->second;
-    }
-    return {};
-  }
+  std::string toString() const override {
+    std::string res;
+    std::vector<std::string> tmp;
+    for (const auto &m : members) {
+      tmp.push_back(m.first + ":" + m.second->getTypeName());
+    };
+    if (tmp.size())
+      res += std::string(res.size() ? "," : "") + "members:{" +
+             StringHelpers::joinIntoString(tmp) + "}";
+    tmp.clear();
+    for (const auto &m : functions) {
+      tmp.push_back(m.first + ":" + m.second->getSignature());
+    };
+    if (tmp.size())
+      res += std::string(res.size() ? "," : "") + "functions:{" +
+             StringHelpers::joinIntoString(tmp) + "}";
 
-  std::map<Identifier, Action> trig;
+    tmp.clear();
+    for (const auto &m : getters) {
+      tmp.push_back(m.first + ":" + m.second->getTypeName());
+    };
+    if (tmp.size())
+      res += std::string(res.size() ? "," : "") + "getters:{" +
+             StringHelpers::joinIntoString(tmp) + "}";
+    return res;
+  }
   std::map<Identifier, GetterBase *> getters;
   std::map<Identifier, MemberBase *> members;
   std::map<Identifier, FunctionBase *> functions;
@@ -218,7 +182,7 @@ private:
 };
 // static_assert(std::is_aggregate<QResult>::value);
 struct APIInstanceBase {
-
+  virtual const APIBase &getAPI() = 0;
   virtual QResult get(const Identifier &n) = 0;
   virtual bool set(const Identifier &n, const TypedArgList &args) = 0;
   virtual QResult call(const Identifier &n, const TypedArgList &args) = 0;
@@ -248,7 +212,7 @@ bool trySet(C &o, MemberBase *g, const TypedArgBase *v) {
 template <typename C>
 QResult tryCall(C &owner, FunctionOfInstance<C> &fun, const TypedArgList &v) {
   if (fun.getNumArgs() == v.size()) {
-    PRINTLN("insideTryCall");
+    // PRINTLN("insideTryCall");
     TypedArgBase::UPtr res = fun.call(owner, v);
     return QResult(std::move(res));
   }
@@ -258,8 +222,9 @@ QResult tryCall(C &owner, FunctionOfInstance<C> &fun, const TypedArgList &v) {
 template <typename C> struct APIInstance : public APIInstanceBase {
 
   APIInstance(C &o, const API<C> &a) : obj(o), api(a) {}
+  const APIBase &getAPI() { return api; }
   QResult get(const Identifier &n) override {
-    if (auto *getter = api.getters.at(n)) {
+    if (auto *getter = getOrNull(api.getters, n)) {
       QResult r;
       bool success =
           tryGet<C, float>(obj, getter, r) || tryGet<C, int>(obj, getter, r);
@@ -271,7 +236,7 @@ template <typename C> struct APIInstance : public APIInstanceBase {
   }
 
   bool set(const Identifier &n, const TypedArgList &args) override {
-    if (auto *member = api.members.at(n)) {
+    if (auto *member = getOrNull(api.members, n)) {
       if (args.size() == 1) {
         auto *v = args[0];
         return trySet<C, float>(obj, member, v) ||

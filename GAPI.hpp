@@ -6,8 +6,9 @@ template <typename GrideyeImplT> struct GAPI : public API<GrideyeImplT> {
   GAPI() {
     this->template rMember<float>("test", &GrideyeImplT::test);
     this->template rGetter<float>(
-        "getTherm", [](GrideyeImplT &owner) { return owner.getThermistor(); });
-    this->template rGetter<float>("getTherm2", &GrideyeImplT::getThermistor);
+        "getThermf", [](GrideyeImplT &owner) { return owner.getThermistor(); });
+    this->template rGetter<float>("getTherm", &GrideyeImplT::getThermistor);
+
     this->template rTrig("thermistor", [](GrideyeImplT &owner) {
       PRINT("temp");
       PRINTLN(owner.getThermistor());
