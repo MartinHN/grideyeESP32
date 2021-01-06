@@ -123,6 +123,7 @@ template <typename T> T TypedArgBase::get() const {
   // }
   // if (std::is_floating_point<T>::value) {
   if (auto d = dynamic_cast<const TypedArg<int> *>(this)) {
+
     return T(d->get());
   }
   // }

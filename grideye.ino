@@ -23,6 +23,9 @@ void setup() {
   delay(100);
 
   ge.setup();
+  if (!root.setup()) {
+    PRINTLN("error while setting up root");
+  }
 }
 
 void loop() {
@@ -53,9 +56,9 @@ void loop() {
               connectivity::sendOSCResp(rmsg);
             }
           }
+          Serial.print("res : ");
+          Serial.println(res.toString().c_str());
         }
-        Serial.print("res : ");
-        Serial.println(res.toString().c_str());
 #endif
       }
       Serial.println("endOSC");
