@@ -29,7 +29,6 @@ struct MockAPI : public API<GEMock> {
 MockAPI api;
 GEMock inst;
 
-APIInstance<GEMock> apiInst(inst, api);
 
 template <typename T> void testType(const std::string &fname, double val) {
   FunctionOfInstance<GEMock> *f = api.getFunction(fname);
@@ -96,6 +95,8 @@ TEST(APITest, canCall) {
 }
 
 TEST(APITest, toString) {
+
+  APIInstance<GEMock> apiInst(inst, api);
   auto apiState = apiInst.toString();
   EXPECT_TRUE(apiState.size() > 0);
   PRINTLN(apiState);
@@ -103,4 +104,22 @@ TEST(APITest, toString) {
   EXPECT_TRUE(success);
   auto apiState2 = apiInst.toString();
   EXPECT_TRUE(apiState2 == apiState);
+}
+
+TEST(APITest, Serializer) {
+  APIInstance<GEMock> apiInst(inst, api);
+  auto state = APISerializer::membersToString(apiInst);
+  EXPECT_TRUE(state.size());
+}
+
+TEST(APITest, Singleton) {
+  struct S : public APIAndInstance<S> {
+    S() : APIAndInstance<S>(*this) { rMember<float>("l", &S::l); }
+    float l = 0;
+  };
+  S s;
+
+  auto state = APISerializer::membersToString(s);
+  PRINTLN(state.c_str());
+  EXPECT_TRUE(state.size());
 }

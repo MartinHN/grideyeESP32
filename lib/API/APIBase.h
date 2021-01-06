@@ -23,14 +23,67 @@ T *getOrNull(const std::map<Identifier, T> &m, const Identifier &i) {
 
 struct APIBase {
   virtual ~APIBase() = default;
-  virtual std::string toString() const = 0;
+
+  bool canGet(const Identifier &id) const {
+    return (getOrNull(members, id) != nullptr) ||
+           (getOrNull(getters, id) != nullptr);
+  }
+  bool canSet(const Identifier &id) const {
+    return getOrNull(members, id) != nullptr;
+  }
+  bool canCall(const Identifier &id) const {
+    return getOrNull(functions, id) != nullptr;
+  }
+
+  std::string toString() const {
+    std::string res;
+    std::vector<std::string> tmp;
+    for (const auto &m : members) {
+      tmp.push_back(m.first + ":" + m.second->getTypeName());
+    };
+    if (tmp.size())
+      res += std::string(res.size() ? "," : "") + "members:{" +
+             StringHelpers::joinIntoString(tmp) + "}";
+    tmp.clear();
+    for (const auto &m : functions) {
+      tmp.push_back(m.first + ":" + m.second->getSignature());
+    };
+    if (tmp.size())
+      res += std::string(res.size() ? "," : "") + "functions:{" +
+             StringHelpers::joinIntoString(tmp) + "}";
+
+    tmp.clear();
+    for (const auto &m : getters) {
+      tmp.push_back(m.first + ":" + m.second->getTypeName());
+    };
+    if (tmp.size())
+      res += std::string(res.size() ? "," : "") + "getters:{" +
+             StringHelpers::joinIntoString(tmp) + "}";
+    return res;
+  }
+  std::map<Identifier, GetterBase *> getters;
+  std::map<Identifier, MemberBase *> members;
+  std::map<Identifier, FunctionBase *> functions;
 };
+
 template <typename C> struct API : public APIBase {
 
   using Action = std::function<void(C &)>;
 
   template <typename T> void rMember(const Identifier &name, T C::*ptr) {
-    members.emplace(name, new Member<C, T>(ptr));
+    members.emplace(name, new MemberValue<C, T>(ptr));
+  };
+
+  template <typename T>
+  void rGetSet(const Identifier &name, typename ClassMemberGetSet<C, T>::GetF g,
+               typename ClassMemberGetSet<C, T>::SetF s) {
+    members.emplace(name, new ClassMemberGetSet<C, T>(g, s));
+  };
+  template <typename T>
+  void rGetSet(const Identifier &name,
+               typename LambdaMemberGetSet<C, T>::GetF g,
+               typename LambdaMemberGetSet<C, T>::SetF s) {
+    members.emplace(name, new LambdaMemberGetSet<C, T>(g, s));
   };
 
   template <typename T>
@@ -100,43 +153,9 @@ template <typename C> struct API : public APIBase {
     }
     return {};
   }
+
   bool doAction(C &instance, const Identifier &id) const {
     return apply<C, void>(instance, id);
   }
 
-  bool canGet(const Identifier &id) const {
-    return getOrNull(members, id) || getOrNull(getters, id);
-  }
-  bool canSet(const Identifier &id) const { return getOrNull(members, id); }
-  bool canCall(const Identifier &id) const { return getOrNull(functions, id); }
-
-  std::string toString() const override {
-    std::string res;
-    std::vector<std::string> tmp;
-    for (const auto &m : members) {
-      tmp.push_back(m.first + ":" + m.second->getTypeName());
-    };
-    if (tmp.size())
-      res += std::string(res.size() ? "," : "") + "members:{" +
-             StringHelpers::joinIntoString(tmp) + "}";
-    tmp.clear();
-    for (const auto &m : functions) {
-      tmp.push_back(m.first + ":" + m.second->getSignature());
-    };
-    if (tmp.size())
-      res += std::string(res.size() ? "," : "") + "functions:{" +
-             StringHelpers::joinIntoString(tmp) + "}";
-
-    tmp.clear();
-    for (const auto &m : getters) {
-      tmp.push_back(m.first + ":" + m.second->getTypeName());
-    };
-    if (tmp.size())
-      res += std::string(res.size() ? "," : "") + "getters:{" +
-             StringHelpers::joinIntoString(tmp) + "}";
-    return res;
-  }
-  std::map<Identifier, GetterBase *> getters;
-  std::map<Identifier, MemberBase *> members;
-  std::map<Identifier, FunctionBase *> functions;
 };

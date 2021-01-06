@@ -115,6 +115,7 @@ struct GrideyeImpl {
       }
       return res;
     }
+    return {};
   }
 
   void dbg() {

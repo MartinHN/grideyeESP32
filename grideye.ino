@@ -1,20 +1,18 @@
 #include <Arduino.h>
 
-#include "./lib/OSCAPI.h"
 #include "./lib/connectivity.hpp"
 #include "./lib/time.hpp"
-#include "GAPI.hpp"
 #include "GrideyeImpl.hpp"
+#include "RootAPI.h"
 #include <string>
 
 GrideyeImpl ge;
-GAPI<GrideyeImpl> gapi;
+RootAPI root(ge);
 std::string myOSCID = "0";
 
 Timeout matTimeout(50);
 Timeout bgSnapShot(1000);
-OSCAPI api;
-APIInstance<GrideyeImpl> gAPIInstance(ge, gapi);
+
 void setup() {
   // Pour a bowl of serial
   Serial.begin(115200);
@@ -23,7 +21,7 @@ void setup() {
   connectivity::setup(myOSCID);
 
   delay(100);
-  api.registerAPI("/g", &gAPIInstance);
+
   ge.setup();
 }
 
@@ -40,8 +38,10 @@ void loop() {
         // bundle.getOSCMessage(i)->getAddress(OSCAPI::OSCEndpoint::getBuf());
         // Serial.println(OSCAPI::OSCEndpoint::getBuf());
         auto &msg = *bundle.getOSCMessage(i);
-        auto res = api.processOSC(msg, needAnswer);
+        auto res = api.processOSC(&root, msg, needAnswer);
+#if 1
         if (needAnswer) {
+          Serial.println("try send resp");
           if (!bool(res)) {
             Serial.println("invalid res returned from api resp");
           } else if (!res.res) {
@@ -56,6 +56,7 @@ void loop() {
         }
         Serial.print("res : ");
         Serial.println(res.toString().c_str());
+#endif
       }
       Serial.println("endOSC");
     }
@@ -63,7 +64,8 @@ void loop() {
     if (matTimeout.update(t)) {
 
       // gapi.doAction(ge, "thermistor");
-      // connectivity::sendOSC("/mat", ge.tempBGTRemoved());
+      if (root.sendMat)
+        connectivity::sendOSC("/mat", ge.tempBGTRemoved());
     }
     if (bgSnapShot.updateOneShot(t)) {
       // gapi.set<float>(ge, "test", 5.0f);

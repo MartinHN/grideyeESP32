@@ -112,17 +112,18 @@ void draw() {
   println(mean);
   float pctHeat = 0.5;
    hasPresence = mean >1; 
-  //minimum = maxRoomTemp;
+  minimum = 20;// maxRoomTemp;
   //maximum = mean;
-  //maximum = max(maxRoomTemp + 2,maximum);
+  maximum =30;// max(maxRoomTemp + 2,maximum);
   //if(maximum>22){
     int pow = 1;
   for(int q = 0; q < 64; q++){
    
     temps[q] = map(temps[q], minimum,maximum, 00, 1);// map(float(splitString[q]), 20, 40, 240, 360);
-    temps[q] = constrain(temps[q],0,1);
+  /*  temps[q] = constrain(temps[q],0,1);
     temps[q] = pow(temps[q],pow);
     temps[q] = constrain(temps[q],0,1);
+    */
     //temps[q-1] = map(float(splitString[q]), 0, +d, 00, 100);
   }
   //}
@@ -131,7 +132,7 @@ void draw() {
  }
   }
   
-  
+/*
   for(int x = 0 ; x < 8 ; x++){
     for(int y = 0 ; y < 8 ; y++){
       
@@ -148,10 +149,17 @@ void draw() {
       buf[y*8+x] = convolution(x, y,matrix, 3, temps);
     }
    }
-   for(int i = 0 ; i < 64 ; i++){
+for(int i = 0 ; i < 64 ; i++){
      temps[i] = buf[i];
    }
-   
+
+*/
+
+for(int i = 0 ; i < 64 ; i++){
+     buf[i] = temps[i];
+   }
+
+
    int iMax = -1;
    if(hasPresence){
    float maxV = temps[0];

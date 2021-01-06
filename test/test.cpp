@@ -1,5 +1,5 @@
 
-#include "../lib/API/API.h"
+#include "../lib/API/API.hpp"
 #include "GEMock.h"
 
 int main(int argc, char **argv) {

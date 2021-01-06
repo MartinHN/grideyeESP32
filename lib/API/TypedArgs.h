@@ -114,13 +114,13 @@ template <typename T> T TypedArgBase::get() const {
   std::string tname(TypeOf<T>::name());
   PRINT("getting : ");
   PRINTLN(tname.c_str());
-  PRINT(" from : ");
-  try {
-    PRINTLN(this->type.name().c_str());
-  } catch (std::exception e) {
-    PRINT("exception : ");
-    PRINTLN(e.what());
-  }
+  // PRINT(" from : ");
+  // try {
+  //   PRINTLN(this->type.name().c_str());
+  // } catch (std::exception e) {
+  //   PRINT("exception : ");
+  //   PRINTLN(e.what());
+  // }
   // if (std::is_floating_point<T>::value) {
   if (auto d = dynamic_cast<const TypedArg<int> *>(this)) {
     return T(d->get());

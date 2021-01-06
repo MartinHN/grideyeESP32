@@ -1,41 +1,44 @@
 #pragma once
-#include "API/API.h"
+#include "API/API.hpp"
 #include "OSCMessage.h"
 #include <map>
 #include <string>
 using std::string;
 
-class OSCAPI : public API<OSCAPI> {
-public:
-  std::unique_ptr<APIInstance<OSCAPI>> selfAPI;
-  OSCAPI() {
-
-    // rFunction<std::string>("listNamespaces", [](OSCAPI &a) -> std::string {
-    //   std::vector<std::string> nsNames;
-    //   for (auto const &imap : a.apis)
-    //     nsNames.push_back(imap.first + ":" + imap.second->getAPI().toString()
-    //     +
-    //                       "\n");
-    //   return StringHelpers::joinIntoString(nsNames);
-    // });
-
-    selfAPI.reset(new APIInstance<OSCAPI>(*this, *this));
-    registerAPI("/o", selfAPI.get());
-  };
-
-  void registerAPI(const string &ns, APIInstanceBase *api) {
-    apis.emplace(ns, api);
+// OSC Arg to std::string
+std::string getOSCStringArg(OSCMessage &msg, int pos) {
+  if (msg.isString(pos)) {
+    int size = msg.getDataLength(pos);
+    PRINT("allocating : ");
+    PRINTLN(size);
+    if (size > 0) {
+      std::string buf(size - 1, '\0');
+      if (!msg.getString(pos, &buf[0])) {
+        PRINTLN("alloc failed");
+      }
+      PRINT("b : ");
+      PRINTLN(buf.c_str());
+      return buf;
+    }
   }
+  return {};
+}
+class OSCAPI {
+public:
+  OSCAPI(){
+
+  };
 
   typedef enum { NONE = 0, SET = 1, GET = 2, CALL = 3 } MsgType;
 
   MsgType getType(OSCMessage &msg) {
-    if (msg.getString(0, OSCEndpoint::getBuf()) > 0) {
-      if (strcmp(OSCEndpoint::getBuf(), "get") == 0) {
+    if (msg.isString(0)) {
+      auto s = getOSCStringArg(msg, 0);
+      if (s == "get") {
         return GET;
-      } else if (strcmp(OSCEndpoint::getBuf(), "call") == 0) {
+      } else if (s == "call") {
         return CALL;
-      } else if (strcmp(OSCEndpoint::getBuf(), "set") == 0) {
+      } else if (s == "set") {
         return SET;
       }
     }
@@ -60,9 +63,7 @@ public:
     } else if (msg.isBoolean(o)) {
       return std::make_unique<TypedArg<bool>>(msg.getBoolean(o));
     } else if (msg.isString(o)) {
-      std::string s(msg.getDataLength(o), 0);
-      msg.getString(o, &s[0]);
-      return std::make_unique<TypedArg<std::string>>(s);
+      return std::make_unique<TypedArg<std::string>>(getOSCStringArg(msg, o));
     }
     Serial.println("unsuported OSC member");
     return {};
@@ -79,9 +80,9 @@ public:
     return false;
   }
 
-  QResult processOSC(OSCMessage &msg, bool &needAnswer) {
+  QResult processOSC(NodeBase *from, OSCMessage &msg, bool &needAnswer) {
     needAnswer = false;
-    if (auto a = getEpFromMsg(msg)) {
+    if (auto a = getEpFromMsg(from, msg)) {
       auto &api = *a.api;
       auto mt = getType(msg);
       Identifier localName = a.getLocalIdentifier(msg);
@@ -93,24 +94,29 @@ public:
       Serial.print("local name : ");
       Serial.println(localName.c_str());
       if (localName.size()) {
-#if 1
+        // #if 1
         if (mt == GET) {
           needAnswer = true;
+          PRINTLN("start get");
           return api.get(localName);
         }
+#if 1
         if (mt == SET) {
           bool success = api.set(localName, {argFromOSCMessage(msg, 1)});
-          return QResult::ok();
+          return success ? QResult::ok()
+                         : QResult::err("can't set " + localName);
         }
         if (mt == CALL) {
           needAnswer = true;
           return api.call(localName, listFromOSCMessage(msg, 1));
         } else {
           // defaults
+          PRINT("gessing req from msg size : ");
+          PRINTLN(msg.size());
           if (msg.size() == 1) { // set if argument
             if (api.canSet(localName)) {
               bool success = api.set(localName, {argFromOSCMessage(msg, 0)});
-              return QResult(success);
+              return QResult(!success);
             } else if (api.canCall(localName)) {
               needAnswer = true;
               return api.call(localName, {argFromOSCMessage(msg, 0)});
@@ -141,34 +147,29 @@ public:
 
       return QResult::err(" can't reslove local name");
     }
-    return QResult::err(" can't reslove api for namespace");
+    return QResult::err(" can't reslove api for namespace" + getAddress(msg));
   }
 
   struct OSCEndpoint {
     APIInstanceBase *api = nullptr;
-    int matchOffset = -1;
+    std::string childNameHint = "";
+    OSCEndpoint(APIInstanceBase *_api = nullptr,
+                const std::string &_childHint = "")
+        : api(_api), childNameHint(_childHint) {}
+
     static char *getBuf() {
       static char strBuf[255];
       return strBuf;
     }
 
     MsgType type = SET;
-    std::string getRemainingAddress(OSCMessage &msg) {
-      if (matchOffset >= 0) {
-        if (msg.getAddress(getBuf(), matchOffset)) {
-          return std::string(getBuf());
-        }
-      }
-      return {};
-    }
 
     std::string getLocalIdentifier(OSCMessage &msg) {
-      auto rem = getRemainingAddress(msg);
-      if (rem.size()) {
-        return rem;
+      if (childNameHint.size()) {
+        return childNameHint;
       }
-      if (msg.getString(0, getBuf())) {
-        return std::string(getBuf());
+      if (msg.isString(0)) {
+        return getOSCStringArg(msg, 0);
       }
       return {};
     }
@@ -176,21 +177,47 @@ public:
     operator bool() const { return api != nullptr; }
   };
 
+  std::string getAddress(OSCMessage &msg) {
+    if (!msg.getAddress(OSCEndpoint::getBuf(), 0)) {
+      OSCEndpoint::getBuf()[0] = '\0';
+    }
+    return std::string(OSCEndpoint::getBuf());
+  }
+
 protected:
-  OSCEndpoint getEpFromMsg(const OSCMessage &msg) {
-    for (auto &a : apis) {
-      int partialMatchOffset =
-          const_cast<OSCMessage *>(&msg)->match(a.first.c_str());
-      Serial.print("matches : ");
-      Serial.println(partialMatchOffset);
-      if (partialMatchOffset > 0) {
-        return {.api = (APIInstanceBase *)(a.second),
-                .matchOffset = partialMatchOffset};
+  OSCEndpoint getEpFromMsg(NodeBase *from, OSCMessage &msg) {
+    auto addr = getAddress(msg);
+    auto addrV = StringHelpers::splitString(addr, '/');
+    auto res = from->resolveAddr(addrV, 0);
+    NodeBase *resolvedNode = res.first;
+    int lastValidIdx = res.second;
+
+    PRINT(" last ");
+    PRINTLN(lastValidIdx);
+    if (resolvedNode) {
+
+      if (APIInstanceBase *resolvedAPI =
+              getLinkedObj<APIInstanceBase>(resolvedNode)) {
+        if (lastValidIdx < addrV.size() - 2) {
+          PRINTLN("!!! OSC parse error");
+        }
+        auto cHint =
+            (lastValidIdx == addrV.size() - 2 ? addrV[addrV.size() - 1] : "");
+        return {resolvedAPI, cHint};
+      } else {
+        PRINT("!!! resolve can't be casted to API : ");
+        PRINT(addrV.size());
+        PRINT(" : ");
+        PRINTLN(lastValidIdx);
       }
+    } else {
+      PRINT("!!! can't resolve :  ");
+      PRINT(addrV.size());
+      PRINT(" : ");
+      PRINTLN(lastValidIdx);
     }
     return {};
   }
-  std::map<string, APIInstanceBase *> apis;
 };
 
 template <>

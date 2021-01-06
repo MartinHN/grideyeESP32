@@ -56,4 +56,25 @@ static std::string joinIntoString(
   return res;
 }
 
+static std::vector<std::string> splitString(const std::string &s,
+                                            const char delim) {
+  std::vector<std::string> res;
+  std::string tmp;
+  for (int i = 0; i < s.size(); i++) {
+    auto c = s[i];
+    if (c == delim) {
+      if (tmp.size() && (i != s.size() - 1)) { // force push manually
+        res.push_back(tmp);
+        tmp.clear();
+      }
+    } else {
+      tmp += s[i];
+    }
+  }
+  if (tmp.size()) { //  push manually
+    res.push_back(tmp);
+  }
+  return res;
+}
+
 } // namespace StringHelpers

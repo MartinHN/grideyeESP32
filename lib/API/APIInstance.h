@@ -1,19 +1,17 @@
 #pragma once
 #include "APIBase.h"
 
-#define USE_CEREAL 1
 
 #if USE_CEREAL
 #include <cereal/archives/json.hpp>
-// #include <cereal/types/memory.hpp>
-// #include <cereal/types/unordered_map.hpp>
-
 #endif
 
 struct APIInstanceBase {
+
+  virtual ~APIInstanceBase() = default;
   virtual const APIBase &getAPI() = 0;
   virtual QResult get(const Identifier &n) = 0;
-  virtual bool set(const Identifier &n, const TypedArgList &args) = 0;
+  virtual QResult set(const Identifier &n, const TypedArgList &args) = 0;
   virtual QResult call(const Identifier &n, const TypedArgList &args) = 0;
   virtual bool canGet(const Identifier &id) const = 0;
   virtual bool canSet(const Identifier &id) const = 0;
@@ -27,10 +25,26 @@ template <typename C> struct APIInstance : public APIInstanceBase {
   APIInstance(C &o, const API<C> &a) : obj(o), api(a) {}
   const APIBase &getAPI() override { return api; }
   QResult get(const Identifier &n) override {
+    PRINT("try get : ");
+    PRINTLN(n.c_str());
     if (auto *getter = getOrNull(api.getters, n)) {
+      PRINTLN("try getters");
       QResult r;
-      bool success =
-          tryGet<C, float>(obj, getter, r) || tryGet<C, int>(obj, getter, r);
+      bool success = tryGet<C, float>(obj, getter, r) ||
+                     tryGet<C, int>(obj, getter, r) ||
+                     tryGet<C, bool>(obj, getter, r) ||
+                     tryGet<C, std::string>(obj, getter, r);
+      if (success) {
+        return r;
+      }
+    }
+    if (auto *getter = getOrNull(api.members, n)) {
+      PRINTLN("try members");
+      QResult r;
+      bool success = tryGet<C, float>(obj, getter, r) ||
+                     tryGet<C, int>(obj, getter, r) ||
+                     tryGet<C, bool>(obj, getter, r) ||
+                     tryGet<C, std::string>(obj, getter, r);
       if (success) {
         return r;
       }
@@ -38,15 +52,20 @@ template <typename C> struct APIInstance : public APIInstanceBase {
     return QResult::err("cannot get ");
   }
 
-  bool set(const Identifier &n, const TypedArgList &args) override {
+  QResult set(const Identifier &n, const TypedArgList &args) override {
+    PRINTLN("try set  ");
     if (auto *member = getOrNull(api.members, n)) {
       if (args.size() == 1) {
         auto *v = args[0];
-        return trySet<C, float>(obj, member, v) ||
-               trySet<C, int>(obj, member, v);
+        bool success = trySet<C, float>(obj, member, v) ||
+                       trySet<C, int>(obj, member, v) ||
+                       trySet<C, bool>(obj, member, v) ||
+                       trySet<C, std::string>(obj, member, v);
+        return QResult(!success);
       }
+      return QResult::err("cannot set wrong num args");
     }
-    return false;
+    return QResult::err("cannot set no member");
   }
 
   QResult call(const Identifier &n, const TypedArgList &args) override {
@@ -65,7 +84,8 @@ template <typename C> struct APIInstance : public APIInstanceBase {
   template <class AR> void serialize(AR &ar) const {
     bool success = true;
     for (auto &m : api.members) {
-      success &= (chkAdd<AR, float>(ar, m));
+      success &= (chkAdd<AR, float>(ar, m) || chkAdd<AR, int>(ar, m) ||
+                  chkAdd<AR, bool>(ar, m) || chkAdd<AR, std::string>(ar, m));
     }
   }
 
@@ -118,4 +138,10 @@ template <typename C> struct APIInstance : public APIInstanceBase {
   }
   C &obj;
   const API<C> &api;
+};
+
+// defines both API and instanciation
+template <typename C>
+struct APIAndInstance : public API<C>, public APIInstance<C> {
+  APIAndInstance(C &obj) : APIInstance<C>(obj, *(API<C> *)(this)) {}
 };

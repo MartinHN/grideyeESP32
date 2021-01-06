@@ -25,19 +25,59 @@ template <typename T> bool MemberBase::is() const {
 }
 
 template <typename C, typename T> struct Member : public MemberBaseT<T> {
-  typedef T C::*Ptr;
-  Ptr ptr;
-  Member(Ptr mPtr) : ptr(mPtr) {}
-  void set(C &owner, const T &v) { owner.*ptr = v; }
-  T get(const C &owner) const { return owner.*ptr; }
-  const T &getRef(const C &owner) const { return owner.*ptr; }
+
+  Member() = default;
+  virtual ~Member() = default;
+  virtual void set(C &owner, const T &v) = 0;
+  virtual T get(C &owner) const = 0;
 
   void setFromString(void *owner, const std::string &s) override {
-    reinterpret_cast<C *>(owner)->*ptr = StringHelpers::fromString<T>(s);
+    if (auto co = reinterpret_cast<C *>(owner))
+      set(*co, StringHelpers::fromString<T>(s));
   }
   std::string toString(void *owner) const override {
-    return StringHelpers::toString<T>(reinterpret_cast<C *>(owner)->*ptr);
+    if (auto co = reinterpret_cast<C *>(owner))
+      return StringHelpers::toString<T>(get(*co));
+    return {};
   }
+};
+template <typename C, typename T> struct MemberValue : public Member<C, T> {
+  typedef T C::*Ptr;
+  Ptr ptr;
+  MemberValue(Ptr mPtr) : ptr(mPtr) {}
+  void set(C &owner, const T &v) { owner.*ptr = v; }
+  T get(C &owner) const { return owner.*ptr; }
+  const T &getRef(const C &owner) const { return owner.*ptr; }
+
+  // void setFromString(void *owner, const std::string &s) override {
+  //   reinterpret_cast<C *>(owner)->*ptr = StringHelpers::fromString<T>(s);
+  // }
+  // std::string toString(void *owner) const override {
+  //   return StringHelpers::toString<T>(reinterpret_cast<C *>(owner)->*ptr);
+  // }
+};
+
+template <typename C, typename T>
+struct ClassMemberGetSet : public Member<C, T> {
+  typedef std::function<void(C &, const T &)> SetF;
+  typedef std::function<T(C &)> GetF;
+
+  ClassMemberGetSet(GetF getF, SetF setF) : getF(getF), setF(setF) {}
+  void set(C &owner, const T &v) { setF(owner, v); }
+  T get(C &owner) const { return getF(owner); }
+  GetF getF;
+  SetF setF;
+};
+template <typename C, typename T>
+struct LambdaMemberGetSet : public Member<C, T> {
+  typedef std::function<void(const T &)> SetF;
+  typedef std::function<T()> GetF;
+
+  LambdaMemberGetSet(GetF getF, SetF setF) : getF(getF), setF(setF) {}
+  void set(C &owner, const T &v) { setF(owner, v); }
+  T get(C &owner) const { return getF(owner); }
+  GetF getF;
+  SetF setF;
 };
 
 struct GetterBase {
@@ -81,6 +121,7 @@ struct Function : public FunctionOfInstance<C> {
   T apply(C &owner, Args... args) { return f(owner, args...); }
 
   int getNumArgs() const override { return sizeof...(Args); };
+
   std::vector<std::string> getArgTypes() const override {
     std::vector<std::string> res;
     getArgAtPos<Args...>(res);
@@ -179,6 +220,14 @@ template <typename C, typename T>
 bool tryGet(C &o, GetterBase *g, QResult &res) {
   if (auto getter = dynamic_cast<Getter<C, T> *>(g)) {
     res.set(getter->get(o));
+    return true;
+  }
+  return false;
+}
+template <typename C, typename T>
+bool tryGet(C &o, MemberBase *g, QResult &res) {
+  if (auto mgetter = dynamic_cast<Member<C, T> *>(g)) {
+    res.set(mgetter->get(o));
     return true;
   }
   return false;
