@@ -117,7 +117,9 @@ void setup(const std::string &_uid) {
   WiFi.onEvent(WiFiEvent);
 #if MULTI
   wifiMulti.addAP(net0.ssid, net0.pass);
-  wifiMulti.addAP(net1.ssid, net1.pass);
+  for (auto &n : nets) {
+    wifiMulti.addAP(n.ssid, n.pass);
+  }
 #else
   WiFi.mode(WIFI_STA);
 #endif
