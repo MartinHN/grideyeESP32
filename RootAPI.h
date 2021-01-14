@@ -5,7 +5,7 @@
 #include "SPIFFS.h"
 OSCAPI api;
 
-struct RootAPI : public APIAndInstance<RootAPI>, MapNode {
+struct RootAPI : public APIAndInstance<RootAPI>, public MapNode {
   RootAPI(GrideyeImpl &ge)
       : APIAndInstance<RootAPI>(*this), MapNode(), gapi(ge),
         spiffPrefix("/spiffs") {
@@ -137,5 +137,5 @@ struct RootAPI : public APIAndInstance<RootAPI>, MapNode {
   }
   GAPI gapi;
   std::string spiffPrefix;
-  bool sendMat = false;
+  bool sendMat = true;
 };

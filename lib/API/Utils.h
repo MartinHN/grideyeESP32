@@ -3,6 +3,7 @@
 #include <functional>
 #include <sstream>
 #include <string>
+#include <vector>
 
 namespace StringHelpers {
 
@@ -76,5 +77,34 @@ static std::vector<std::string> splitString(const std::string &s,
   }
   return res;
 }
+
+template <typename T,
+          std::enable_if_t<std::is_same<T, std::string>::value> * = nullptr>
+std::string getTypeName() {
+  return "string";
+};
+
+template <typename T, std::enable_if_t<std::is_same<T, int>::value> * = nullptr>
+std::string getTypeName() {
+  return "integer";
+};
+
+template <typename T,
+          std::enable_if_t<std::is_same<T, float>::value> * = nullptr>
+std::string getTypeName() {
+  return "number";
+};
+
+template <typename T,
+          std::enable_if_t<std::is_same<T, double>::value> * = nullptr>
+std::string getTypeName() {
+  return "number";
+};
+
+template <typename T,
+          std::enable_if_t<std::is_same<T, bool>::value> * = nullptr>
+std::string getTypeName() {
+  return "boolean";
+};
 
 } // namespace StringHelpers

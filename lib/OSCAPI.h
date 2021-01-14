@@ -1,5 +1,6 @@
 #pragma once
 #include "API/API.hpp"
+#include "API/APISchema.h"
 #include "OSCMessage.h"
 #include <map>
 #include <string>
@@ -82,6 +83,13 @@ public:
 
   QResult processOSC(NodeBase *from, OSCMessage &msg, bool &needAnswer) {
     needAnswer = false;
+    auto addr = getAddress(msg);
+    if (addr == "/schema") {
+      needAnswer = true;
+      auto str = APISerializer::schemaFromNode(from);
+
+      return QResult(new TypedArg<std::string>(str));
+    }
     if (auto a = getEpFromMsg(from, msg)) {
       auto &api = *a.api;
       auto mt = getType(msg);

@@ -19,6 +19,9 @@ template <typename C> struct SerializableAPI {
       success &= chkAdd<AR, float>(ar, m) || chkAdd<AR, int>(ar, m) ||
                  chkAdd<AR, double>(ar, m) || chkAdd<AR, std::string>(ar, m);
     }
+    if (!success) {
+      PRINTLN("!!!serialization error");
+    }
   }
 
   template <class AR, typename T, typename IT>
