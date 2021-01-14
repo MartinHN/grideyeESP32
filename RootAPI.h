@@ -137,5 +137,5 @@ struct RootAPI : public APIAndInstance<RootAPI>, public MapNode {
   }
   GAPI gapi;
   std::string spiffPrefix;
-  bool sendMat = true;
+  bool sendMat = false;
 };

@@ -125,16 +125,22 @@ TEST(APITest, Singleton) {
 }
 
 TEST(APITest, SerializerNode) {
+  struct S2 : public APIAndInstance<S2>, public MapNode {
+    S2() : APIAndInstance<S2>(*this) { rMember<float>("l2", &S2::l2); }
+    float l2 = 0;
+  };
+  S2 s2;
   struct S : public APIAndInstance<S>, public MapNode {
     S() : APIAndInstance<S>(*this) {
       rMember<float>("l", &S::l);
       addChild("this", this);
+
       PRINTLN("inited");
     }
     float l = 0;
   };
   S s;
-
+  s.addChild("s2", &s2);
   auto state = APISerializer::schemaFromNode(&s);
   PRINTLN(state.c_str());
   EXPECT_TRUE(state.size());
